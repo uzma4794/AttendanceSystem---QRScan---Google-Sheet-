@@ -1,0 +1,103 @@
+function onFormSubmit(e) {
+  // Use a script lock to avoid race conditions when many students submit at once
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) { // wait up to 10s
+    // couldn't get lock — skip (will not mark duplicate)
+    Logger.log("Could not obtain lock, skipping this submission to avoid race.");
+    return;
+  }
+
+  try {
+    const formSheet = e.range.getSheet();
+    const formSheetName = 'Form Responses 1';
+    if (formSheet.getName() !== formSheetName) {
+      lock.releaseLock();
+      return;
+    }
+
+    const ss = e.source;
+    const attendanceSheet = ss.getSheetByName('Attendance');
+    const configSheet = ss.getSheetByName('Config');
+
+    // --- Read form fields (use exact keys from your form)
+    const rollNumber = (e.namedValues['Roll Number'] && e.namedValues['Roll Number'][0]) ? e.namedValues['Roll Number'][0].toString().trim() : '';
+    const enteredPIN = (e.namedValues['PIN '] && e.namedValues['PIN '][0]) ? e.namedValues['PIN '][0].toString().trim() : ''; // adjust key if needed
+    const studentName = (e.namedValues['Name'] && e.namedValues['Name'][0]) ? e.namedValues['Name'][0].toString().trim() : '';
+    const lastRow = formSheet.getLastRow();
+
+    // Basic validations
+    if (!rollNumber) {
+      // remove bad row
+      formSheet.deleteRow(lastRow);
+      Logger.log("Missing roll number — row deleted.");
+      return;
+    }
+
+    // --- Today's date string in same format we will use as header
+    const today = new Date();
+    const dateString = Utilities.formatDate(today, Session.getScriptTimeZone(), "dd-MMM"); // e.g. "21-Oct"
+
+    // --- PIN check (Config!A1 must have the PIN)
+    const correctPIN = configSheet.getRange('A1').getValue().toString().trim();
+    if (enteredPIN !== correctPIN) {
+      formSheet.deleteRow(lastRow);
+      Logger.log(`Wrong PIN for ${rollNumber}. Row deleted.`);
+      return;
+    }
+
+    // --- Read and normalize headers
+    const lastCol = Math.max(attendanceSheet.getLastColumn(), 1);
+    const headerRange = attendanceSheet.getRange(1, 1, 1, lastCol);
+    const rawHeaders = headerRange.getValues()[0];
+
+    // Normalize: if header cell is a Date object => format it the same way; else trim text
+    const normHeaders = rawHeaders.map(h => {
+      if (h instanceof Date) {
+        return Utilities.formatDate(h, Session.getScriptTimeZone(), "dd-MMM");
+      } else {
+        return (h === null || h === undefined) ? '' : h.toString().trim();
+      }
+    });
+
+    // --- Find today's column index (1-based). If not found, create a new column at the end.
+    let colIndex = normHeaders.indexOf(dateString) + 1; // +1 => convert to 1-based
+    if (colIndex === 0) {
+      // create a new column at the end
+      const newCol = lastCol + 1;
+      attendanceSheet.getRange(1, newCol).setValue(dateString);
+      colIndex = newCol;
+      Logger.log(`Created new date column: ${dateString} at index ${colIndex}`);
+    } else {
+      Logger.log(`Using existing date column ${dateString} at index ${colIndex}`);
+    }
+
+    // --- Find roll number row in Attendance sheet (col A)
+    const lastRowAttend = Math.max(attendanceSheet.getLastRow(), 2);
+    const rollRange = attendanceSheet.getRange(2, 1, lastRowAttend - 1, 1).getValues().map(r => (r[0] === null ? '' : r[0].toString().trim()));
+    const rowIndex0 = rollRange.indexOf(rollNumber);
+    if (rowIndex0 === -1) {
+      // roll number not found in master attendance list — reject
+      formSheet.deleteRow(lastRow);
+      Logger.log(`Roll number not found in Attendance sheet: ${rollNumber}. Row deleted.`);
+      return;
+    }
+    const targetRow = rowIndex0 + 2; // convert 0-based to sheet row
+
+    // --- Duplicate check for same date: if cell already contains 'P'
+    const existingVal = attendanceSheet.getRange(targetRow, colIndex).getValue();
+    const existingValStr = (existingVal === null || existingVal === undefined) ? '' : existingVal.toString().trim();
+    if (existingValStr === 'P') {
+      // already present today — remove the new response
+      formSheet.deleteRow(lastRow);
+      Logger.log(`Duplicate attendance attempt for ${rollNumber} blocked for date ${dateString}.`);
+      return;
+    }
+
+    // --- Mark present
+    attendanceSheet.getRange(targetRow, colIndex).setValue('P');
+    Logger.log(`Marked P for ${rollNumber} at row ${targetRow}, col ${colIndex} (${dateString})`);
+
+  } finally {
+    try { lock.releaseLock(); } catch (e) { /* ignore */ }
+  }
+}
