@@ -65,5 +65,5 @@ Once everything is set up:
 *(Add screenshots here showing your Attendance sheet and Form responses)*  
 
 ```markdown
-![Form Screenshot](path/to/form_screenshot.png)
+![Form Screenshot](AppsScriptCode.png)
 ![Attendance Sheet Screenshot](path/to/attendance_screenshot.png)
