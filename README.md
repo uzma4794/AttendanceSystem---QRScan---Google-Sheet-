@@ -62,10 +62,8 @@ Once everything is set up:
 ---
 
 ## Screenshots
-*(Add screenshots here showing your Attendance sheet and Form responses)*  
+
 [![Apps Script Code Screenshot](AppsScriptCode.png)](AppsScriptCode.png)
 [![Google Sheet](GoogleSheet.png)](GoogleSheet.png)
 
-```markdown
-![Form Screenshot](AppsScriptCode.png)
-![Attendance Sheet Screenshot](path/to/attendance_screenshot.png)
+
